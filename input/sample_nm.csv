@@ -1,0 +1,13 @@
+ARCID,REG,ATYP,ADEP,ADES,COMMENT
+EAGLE01,,B738,EGLL,EIDW,Longform non-standard callsign
+RCH451,00-0180,C17,EGLL,ETAR,Known ICAO interest and C17 to military location
+N650RX,N650RX,GLF5,KJFK,EGLL,Sensitive registration callsign
+BAW100,GABCD,C17,EGLL,LEMD,Interest aircraft type only
+PRF123,,A320,EGLL,LFPG,Unknown tricode
+BAW200,G-EUUA,A320,ETAR,EGLL,VKB military location
+RYR999,EI-ABC,B738,EGLL,ZZZZ,ZZZZ destination
+BAW300,G-STBA,A320,EGLL,HLLT,Libya sensitive prefix and missing location
+BAW301,G-STBB,A320,EGLL,LLBG,Israel sensitive prefix and missing location
+BAW302,G-STBC,A320,EGLL,UKBB,Ukraine sensitive prefix and missing location
+RYR1234,EI-DCL,B738,EGLL,EIDW,Ordinary civil known operator should remain unextracted
+BRUISER2,,A400,EGLL,OMDB,Longform and interest aircraft type

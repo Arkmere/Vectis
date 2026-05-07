@@ -1,0 +1,4 @@
+COUNTRY,ICAO_PREFIX,REGION_NAME,CATEGORY,NOTES
+Libya,HL,Libya,SENSITIVE_REGION,Sample sensitive ICAO prefix
+Israel,LL,Israel,SENSITIVE_REGION,Sample sensitive ICAO prefix
+Ukraine,UK,Ukraine,SENSITIVE_REGION,Sample sensitive ICAO prefix
