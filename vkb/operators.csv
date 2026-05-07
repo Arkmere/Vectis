@@ -1,0 +1,5 @@
+CODE,NAME,CATEGORY,COUNTRY,NOTES
+RYR,Ryanair,CIVIL_AIRLINE,Ireland,Ordinary civil operator for sample remainder
+BAW,British Airways,CIVIL_AIRLINE,United Kingdom,Ordinary civil operator
+EZY,easyJet,CIVIL_AIRLINE,United Kingdom,Ordinary civil operator
+RCH,Reach,US_MILITARY,United States,Known interest code also present in VKB
