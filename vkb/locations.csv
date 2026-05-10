@@ -1,0 +1,9 @@
+ICAO,NAME,COUNTRY,TYPE,SENSITIVITY,NOTES
+EGLL,London Heathrow,United Kingdom,CIVIL,,Sample civil airport
+EIDW,Dublin,Ireland,CIVIL,,Sample civil airport
+LEMD,Madrid Barajas,Spain,CIVIL,,Sample civil airport
+LFPG,Paris Charles de Gaulle,France,CIVIL,,Sample civil airport
+ETAR,Ramstein Air Base,Germany,MILITARY,HIGH,Sample military location
+KJFK,New York JFK,United States,CIVIL,,Sample civil airport
+KBOS,Boston Logan,United States,CIVIL,,Sample civil airport
+OMDB,Dubai,United Arab Emirates,CIVIL,,Sample civil airport
