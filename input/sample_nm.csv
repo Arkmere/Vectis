@@ -1,13 +1,13 @@
-TOT/TA,LS,STA,ARCID,ATYP,RM,ADEP,ADES,ALT1,ALT2,D,T,ARF,IOBT,LV,U,E/CTOT,X,F,S,CL,A/TTOT,AT,TOBT,TSAT,TT,Delay,R,RRP RespBy,Opp,YY,Turn,W,MSG,REGUL+,O,Column1,Impacted,CCAMS,Helper Column,Helper Number
-,,,EAGLE01,B738,,EGLL,EIDW,,,,,,,,,,,,,,,,,,,,,,,,,,Longform non-standard callsign,,,,,,,
-,,,RCH451,C17,00-0180,EGLL,ETAR,,,,,,,,,,,,,,,,,,,,,,,,,,Known ICAO interest and C17 to military location,,,,,,,
-,,,N650RX,GLF5,N650RX,KJFK,EGLL,,,,,,,,,,,,,,,,,,,,,,,,,,Sensitive registration callsign,,,,,,,
-,,,BAW100,C17,GABCD,EGLL,LEMD,,,,,,,,,,,,,,,,,,,,,,,,,,Interest aircraft type only,,,,,,,
-,,,PRF123,A320,,EGLL,LFPG,,,,,,,,,,,,,,,,,,,,,,,,,,Unknown tricode,,,,,,,
-,,,BAW200,A320,G-EUUA,ETAR,EGLL,,,,,,,,,,,,,,,,,,,,,,,,,,VKB military location,,,,,,,
-,,,RYR999,B738,EI-ABC,EGLL,ZZZZ,,,,,,,,,,,,,,,,,,,,,,,,,,ZZZZ destination,,,,,,,
-,,,BAW300,A320,G-STBA,EGLL,HLLT,,,,,,,,,,,,,,,,,,,,,,,,,,Libya sensitive prefix and missing location,,,,,,,
-,,,BAW301,A320,G-STBB,EGLL,LLBG,,,,,,,,,,,,,,,,,,,,,,,,,,Israel sensitive prefix and missing location,,,,,,,
-,,,BAW302,A320,G-STBC,EGLL,UKBB,,,,,,,,,,,,,,,,,,,,,,,,,,Ukraine sensitive prefix and missing location,,,,,,,
-,,,RYR1234,B738,EI-DCL,EGLL,EIDW,,,,,,,,,,,,,,,,,,,,,,,,,,Ordinary civil known operator should remain unextracted,,,,,,,
-,,,BRUISER2,A400,,EGLL,OMDB,,,,,,,,,,,,,,,,,,,,,,,,,,Longform and interest aircraft type,,,,,,,
+ARCID,REG,ATYP,ADEP,ADES,COMMENT
+EAGLE01,,B738,EGLL,EIDW,Longform non-standard callsign
+RCH451,00-0180,C17,EGLL,ETAR,Known ICAO interest and C17 to military location
+N650RX,N650RX,GLF5,KJFK,EGLL,Sensitive registration callsign
+BAW100,GABCD,C17,EGLL,LEMD,Interest aircraft type only
+PRF123,,A320,EGLL,LFPG,Unknown tricode
+BAW200,G-EUUA,A320,ETAR,EGLL,VKB military location
+RYR999,EI-ABC,B738,EGLL,ZZZZ,ZZZZ destination
+BAW300,G-STBA,A320,EGLL,HLLT,Libya sensitive prefix and missing location
+BAW301,G-STBB,A320,EGLL,LLBG,Israel sensitive prefix and missing location
+BAW302,G-STBC,A320,EGLL,UKBB,Ukraine sensitive prefix and missing location
+RYR1234,EI-DCL,B738,EGLL,EIDW,Ordinary civil known operator should remain unextracted
+BRUISER2,,A400,EGLL,OMDB,Longform and interest aircraft type
