@@ -35,62 +35,15 @@ Click **Process file** to create the triaged workbook.
 
 ## Expected input columns
 
-Vectis v0.1 expects the project owner's canonical NM/NOP export schema exactly. The input CSV/XLSX must contain all of these headers:
+The input file must contain these columns:
 
-- `TOT/TA`
-- `LS`
-- `STA`
-- `ARCID`
-- `ATYP`
-- `RM`
-- `ADEP`
-- `ADES`
-- `ALT1`
-- `ALT2`
-- `D`
-- `T`
-- `ARF`
-- `IOBT`
-- `LV`
-- `U`
-- `E/CTOT`
-- `X`
-- `F`
-- `S`
-- `CL`
-- `A/TTOT`
-- `AT`
-- `TOBT`
-- `TSAT`
-- `TT`
-- `Delay`
-- `R`
-- `RRP RespBy`
-- `Opp`
-- `YY`
-- `Turn`
-- `W`
-- `MSG`
-- `REGUL+`
-- `O`
-- `Column1`
-- `Impacted`
-- `CCAMS`
-- `Helper Column`
-- `Helper Number`
-
-Field usage in v0.1:
-
-- `ARCID` — callsign / aircraft identification
-- `ATYP` — ICAO aircraft type designator
-- `RM` — canonical registration / registration-mark field
+- `ARCID` — callsign
+- `REG` — registration
+- `ATYP` — aircraft type
 - `ADEP` — departure aerodrome
 - `ADES` — destination aerodrome
-- `ALT1` and `ALT2` — preserved for future location checks
 
-Timing, flow, regulation, helper, and other NM/NOP fields are preserved unchanged but not interpreted in v0.1. Vectis does not accept a `REG` alias in v0.1; use `RM` from the canonical export.
-
-All original columns are preserved unchanged in the output workbook. Derived audit columns are appended after the original columns.
+Additional input columns are preserved in the output workbook.
 
 ## Output
 
@@ -104,19 +57,17 @@ The workbook contains extraction tabs, a remainder tab, VKB update candidates, a
 
 ## Reference CSV files
 
-Vectis v0.1 uses small `config/` files for explicit interest lists and the real VKB CSV exports in `vkb/` for known-entity lookups:
+Vectis loads reference data from:
 
-- `config/interest_icao_codes.csv` — known ICAO/state/military callsign codes of interest for Pass 2
-- `config/interest_aircraft_types.csv` — aircraft types of operational interest for Pass 4
+- `config/interest_icao_codes.csv` — known ICAO/state/military callsign codes of interest
+- `config/interest_aircraft_types.csv` — aircraft types of interest
 - `config/sensitive_registrations.csv` — sensitive registrations
 - `config/sensitive_regions.csv` — sensitive ICAO location prefixes
-- `config/longform_roots.csv` — additional known longform callsign roots
-- `vkb/FDMS_CALLSIGNS_STANDARD.csv` — known standard operators; `TRICODE` is the operator key and the callsign/name/country fields are available for enrichment
-- `vkb/FDMS_CALLSIGNS_NONSTANDARD CALLSIGNS.csv` — known non-standard callsign roots/names used alongside `config/longform_roots.csv`
-- `vkb/FDMS_LOCATIONS_B_E_L.csv` — known aerodromes; `ICAO CODE` is the location key and `USER` values `MILITARY`, `STATE`, and `DUAL` drive the military/state/dual-use pass while `TYPE` remains descriptive only
-- `vkb/FDMS_AIRCRAFT_TYPES.csv` — aircraft type reference keyed by `ICAO Type Designator`; this is loaded for enrichment only and does not make an aircraft operationally interesting by itself
+- `config/longform_roots.csv` — known longform callsign roots
+- `vkb/operators.csv` — known operator tricodes
+- `vkb/locations.csv` — known locations and military/state/dual-use flags
 
-If any reference file is missing, Vectis creates an empty placeholder with the expected headers and continues with a warning. Local checkouts that have not yet received the FDMS VKB exports can still use the legacy sample `vkb/operators.csv` and `vkb/locations.csv` files as a fallback for the bundled sample data.
+If any reference file is missing, Vectis creates an empty placeholder with the expected headers and continues with a warning.
 
 ## Sample data
 

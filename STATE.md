@@ -92,63 +92,14 @@ presents filtered, structured candidates for human review
 Supported formats
 .csv
 .xlsx
-Strict v0.1 input contract
-Vectis v0.1 expects the project owner's canonical NM/NOP export schema exactly. Required headers are:
-TOT/TA
-LS
-STA
-ARCID
-ATYP
-RM
-ADEP
-ADES
-ALT1
-ALT2
-D
-T
-ARF
-IOBT
-LV
-U
-E/CTOT
-X
-F
-S
-CL
-A/TTOT
-AT
-TOBT
-TSAT
-TT
-Delay
-R
-RRP RespBy
-Opp
-YY
-Turn
-W
-MSG
-REGUL+
-O
-Column1
-Impacted
-CCAMS
-Helper Column
-Helper Number
-
-Field usage notes
-ARCID   (callsign / aircraft identification)
-ATYP    (ICAO aircraft type designator)
-RM      (registration / registration-mark field)
+Required fields
+ARCID   (callsign)
+REG     (registration)
+ATYP    (aircraft type)
 ADEP    (departure aerodrome)
 ADES    (destination aerodrome)
-ALT1    (preserved for now; future location checks)
-ALT2    (preserved for now; future location checks)
 
-Timing, flow, regulation, helper, and other NM/NOP fields are preserved but not interpreted in v0.1.
-REG is not part of the v0.1 input contract and is not accepted as an alias for RM.
-
-All original fields are preserved unchanged. Derived/audit columns are appended after the original columns.
+Additional fields are preserved.
 
 6. Output Data
 Primary output
@@ -238,7 +189,7 @@ ICAO → country → type → sensitivity
 Aircraft types
 ATYP → category
 Registrations
-RM → operator → category → notes
+REG → operator → category → notes
 Callsign roots
 ROOT → category → notes
 Dynamic tracking (future)
