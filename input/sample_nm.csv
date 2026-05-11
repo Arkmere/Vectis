@@ -1,4 +1,4 @@
-ARCID,REG,ATYP,ADEP,ADES,COMMENT
+TOT/TA,LS,STA,ARCID,ATYP,RM,ADEP,ADES,ALT1,ALT2,D,T,ARF,IOBT,LV,U,E/CTOT,X,F,S,CL,A/TTOT,AT,TOBT,TSAT,TT,Delay,R,RRP RespBy,Opp,YY,Turn,W,MSG,REGUL+,O,Column1,Impacted,CCAMS,Helper Column,Helper Number
 EAGLE01,,B738,EGLL,EIDW,Longform non-standard callsign
 RCH451,00-0180,C17,EGLL,ETAR,Known ICAO interest and C17 to military location
 N650RX,N650RX,GLF5,KJFK,EGLL,Sensitive registration callsign

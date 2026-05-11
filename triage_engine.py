@@ -14,7 +14,49 @@ from typing import Iterable
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
-REQUIRED_COLUMNS = ["ARCID", "REG", "ATYP", "ADEP", "ADES"]
+REQUIRED_COLUMNS = [
+    "TOT/TA",
+    "LS",
+    "STA",
+    "ARCID",
+    "ATYP",
+    "RM",
+    "ADEP",
+    "ADES",
+    "ALT1",
+    "ALT2",
+    "D",
+    "T",
+    "ARF",
+    "IOBT",
+    "LV",
+    "U",
+    "E/CTOT",
+    "X",
+    "F",
+    "S",
+    "CL",
+    "A/TTOT",
+    "AT",
+    "TOBT",
+    "TSAT",
+    "TT",
+    "Delay",
+    "R",
+    "RRP RespBy",
+    "Opp",
+    "YY",
+    "Turn",
+    "W",
+    "MSG",
+    "REGUL+",
+    "O",
+    "Column1",
+    "Impacted",
+    "CCAMS",
+    "Helper Column",
+    "Helper Number",
+]
 
 ADDED_COLUMNS = [
     "CALLSIGN_FORM",
@@ -257,10 +299,10 @@ def triage_file(
 
     # Pass 3: Known sensitive registrations.
     for idx, row in work.iterrows():
-        reg = normalize_code(row["REG"])
+        reg = normalize_code(row["RM"])
         arcid = normalize_code(row["ARCID"])
         if reg and reg in sensitive_regs:
-            _append_reason(reasons, idx, 3, f"KNOWN_SENSITIVE_REG:{reg}", first_pass, first_reason, matched_field, matched_value, "REG", _clean(row["REG"]))
+            _append_reason(reasons, idx, 3, f"KNOWN_SENSITIVE_REG:{reg}", first_pass, first_reason, matched_field, matched_value, "RM", _clean(row["RM"]))
             operational_interest[idx] = True
         elif row["CALLSIGN_FORM"] == "REGISTRATION_CALLSIGN" and arcid in sensitive_regs:
             _append_reason(reasons, idx, 3, f"KNOWN_SENSITIVE_REG:{arcid}", first_pass, first_reason, matched_field, matched_value, "ARCID", _clean(row["ARCID"]))
@@ -411,3 +453,4 @@ def open_folder(path: str | Path) -> None:
         subprocess.run(["open", str(folder)], check=False)
     else:
         subprocess.run(["xdg-open", str(folder)], check=False)
+
