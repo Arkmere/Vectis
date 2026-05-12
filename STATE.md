@@ -324,3 +324,32 @@ Pass system: defined
 VKB integration: defined
 GUI design: defined
 Implementation: not started
+
+16. Implementation Update — 2026-05-12 — Analyst Workbook v2 / GUI Refresh
+
+Ticket: VECTIS-AW2-GUI-001
+Branch: feature/analyst-workbook-v2-gui-refresh
+
+Implemented:
+- Analyst Workbook v2 workbook ordering with README, analyst-priority, multi-signal, operational-interest, VKB-hygiene, ranked candidate, diagnostics, audit, pass, and summary sheets.
+- Deduplication metadata: exact-row hash, exact duplicate group sizing, strict/loose movement keys, movement group sizing, first-row flags, representative movement row flag, representative selection reason, and group variation summary.
+- Raw-vs-unique accounting in the summary sheet, including extracted/remainder, VKB hygiene, analyst priority, and multi-signal metrics.
+- Deterministic analyst scoring and priority bands, including hygiene-only separation, multi-signal flags, primary reason, short explanation, and suggested next action.
+- Ranked unknown operator and unknown location enrichment queues with raw counts, unique strict/loose movement counts where applicable, samples, first/last seen IOBT, operational-interest context, max analyst score, and update priority.
+- VKB load audit sheet showing loaded resources, expected paths, row/key counts, duplicate/blank/non-standard keys, and standard callsign sanity checks for BAW, EZY, RYR, UPS, KAL, RAM, SVA, THA, TCA, and MSR.
+- VKB match diagnostics sheet for parsed callsign roots, deterministic match status, unmatched reasons, raw/unique counts, and non-operative near-match hints.
+- Pass-specific sheets now include sheet-level match reason/field/value plus preserved first-match and all-match audit trail.
+- Workbook formatting refresh: frozen headers, autofilters, bold header rows, restrained widths, wrapped explanation/audit columns, and analyst-band styling.
+- GUI refresh with script-relative asset paths, assets/vectis.png branding, cleaner internal-tool layout, path sections, action section, readable log, clear button, and bottom state line.
+- Logo fallback: if assets/vectis.png is missing or fails to load, the GUI launches with text branding and logs a non-fatal warning.
+
+Validation evidence:
+- `python validate_sample.py` passed canonical schema validation.
+- `triage_file('input/sample_nm.csv', 'output', '.')` generated `output/sample_nm_triaged.xlsx` successfully with 12 total rows, 11 extracted rows, and 1 remainder row.
+- Generated workbook check confirmed all v2 sheets from `00_README` through `20_SUMMARY` are present.
+- Generated workbook check confirmed audit columns `EXACT_ROW_HASH`, `MOVEMENT_KEY_STRICT`, `MOVEMENT_KEY_LOOSE`, `ANALYST_SCORE`, `ANALYST_BAND`, and `VKB_HYGIENE_ONLY` exist.
+- Generated workbook check confirmed `01_ANALYST_PRIORITY` excludes hygiene-only rows for the sample.
+
+Notes:
+- `input/May test Incomplete.csv` was not present in this checkout, so the May-file manual test could not be run.
+- Generated output workbooks remain uncommitted and should not be added to git.
