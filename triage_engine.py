@@ -125,7 +125,20 @@ FDMS_REFERENCE_SPECS = {
         "COMPANY/CORPORATE NAME",
         "COUNTRY",
     ],
-    "vkb/FDMS_LOCATIONS_B_E_L.csv": ["ICAO CODE", "USER", "TYPE"],
+    "vkb/FDMS_LOCATIONS.csv": [
+        "ICAO CODE",
+        "IATA CODE",
+        "ALTERNATIVE CODE",
+        "LOCATION SERVED",
+        "AIRPORT",
+        "ALTERNATIVE NAME",
+        "HISTORICAL NAME",
+        "COUNTRY",
+        "TYPE",
+        "USER",
+        "NOTES",
+        "ICAO REGION",
+    ],
     "vkb/FDMS_AIRCRAFT_TYPES.csv": ["ICAO Type Designator"],
 }
 
@@ -314,23 +327,70 @@ def _load_location_reference(
 ) -> tuple[set[str], set[str]]:
     """Return known location ICAOs and operationally-interesting USER codes.
 
-    The real FDMS locations file uses ICAO CODE as the key. USER drives
+    Prefer the full FDMS locations dataset if present:
+        vkb/FDMS_LOCATIONS.csv
+
+    Fall back to the older partial B_E_L extract only if the full file is absent
+    or produces no usable ICAO keys.
+
+    The FDMS locations file uses ICAO CODE as the key. USER drives
     military/state/dual-use logic; TYPE is descriptive and intentionally not
     used for extraction logic.
     """
-    fdms_locations = refs["vkb/FDMS_LOCATIONS_B_E_L.csv"].copy()
-    fdms_locations["ICAO_NORM"] = fdms_locations["ICAO CODE"].map(normalize_code)
-    known_locations = set(fdms_locations["ICAO_NORM"]) - {""}
+    location_sources = [
+        "vkb/FDMS_LOCATIONS.csv",
+        "vkb/FDMS_LOCATIONS_B_E_L.csv",
+    ]
+
+    for source in location_sources:
+        if source in refs:
+            fdms_locations = refs[source].copy()
+        else:
+            fdms_locations = _read_optional_reference(
+                base_dir,
+                source,
+                ["ICAO CODE", "USER", "TYPE"],
+            )
+
+        if "ICAO CODE" not in fdms_locations.columns:
+            continue
+
+        if "USER" not in fdms_locations.columns:
+            fdms_locations["USER"] = ""
+
+        fdms_locations["ICAO_NORM"] = fdms_locations["ICAO CODE"].map(normalize_code)
+
+        known_locations = set(fdms_locations["ICAO_NORM"]) - {""}
+        interesting_locations = set(
+            fdms_locations.loc[
+                fdms_locations["USER"].map(
+                    lambda value: normalize_code(value)
+                    in {"MILITARY", "STATE", "DUAL", "DUAL_USE"}
+                ),
+                "ICAO_NORM",
+            ]
+        ) - {""}
+
+        if known_locations:
+            return known_locations, interesting_locations
+
+    legacy = _read_optional_reference(
+        base_dir,
+        "vkb/locations.csv",
+        LEGACY_VKB_REFERENCE_SPECS["vkb/locations.csv"],
+    )
+    legacy["ICAO_NORM"] = legacy["ICAO"].map(normalize_code)
+    known_locations = set(legacy["ICAO_NORM"]) - {""}
     interesting_locations = set(
-        fdms_locations.loc[
-            fdms_locations["USER"].map(
-                lambda value: normalize_code(value) in {"MILITARY", "STATE", "DUAL"}
+        legacy.loc[
+            legacy["TYPE"].map(
+                lambda value: normalize_code(value)
+                in {"MILITARY", "STATE", "DUAL_USE", "DUAL"}
             ),
             "ICAO_NORM",
         ]
     ) - {""}
-    if known_locations:
-        return known_locations, interesting_locations
+    return known_locations, interesting_locations
 
     legacy = _read_optional_reference(
         base_dir, "vkb/locations.csv", LEGACY_VKB_REFERENCE_SPECS["vkb/locations.csv"]
