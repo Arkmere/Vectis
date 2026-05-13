@@ -1,4 +1,9 @@
 __pycache__/
 *.py[cod]
 .ruff_cache/
+
+# Local NM/NOP inputs and generated analyst workbooks
+input/*.csv
+input/*.xlsx
 output/*.xlsx
+output/*.xlsm
