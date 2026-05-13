@@ -10,7 +10,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 import pandas as pd
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -170,6 +170,12 @@ class TriageResult:
     extracted_rows: int
     remainder_rows: int
 
+
+
+def _emit_progress(callback: Callable[[str, int], None] | None, stage: str, percent: int) -> None:
+    """Emit triage progress when a GUI or caller supplied a callback."""
+    if callback:
+        callback(stage, percent)
 
 def _clean(value: object) -> str:
     if pd.isna(value):
@@ -614,21 +620,28 @@ def triage_file(
     input_path: str | Path,
     output_dir: str | Path,
     reference_dir: str | Path | None = None,
+    progress_callback: Callable[[str, int], None] | None = None,
 ) -> TriageResult:
     """Run Vectis v0.1 deterministic triage and write the Excel workbook."""
     input_path = Path(input_path)
     output_dir = Path(output_dir)
     base_dir = Path(reference_dir) if reference_dir else Path.cwd()
 
+    _emit_progress(progress_callback, "Reading input file", 5)
+    df = read_input_file(input_path)
+    _emit_progress(progress_callback, "Validating canonical schema", 10)
+    _validate_required_columns(df)
+
+    _emit_progress(progress_callback, "Loading config and VKB references", 18)
     warnings = ensure_reference_files(base_dir)
     refs = _load_references(base_dir)
 
-    df = read_input_file(input_path)
-    _validate_required_columns(df)
     original_columns = list(df.columns)
     work = df.copy(deep=True)
+    _emit_progress(progress_callback, "Adding duplicate / movement identity metadata", 28)
     _add_identity_metadata(work, original_columns)
 
+    _emit_progress(progress_callback, "Classifying callsigns", 36)
     classifications = work["ARCID"].apply(classify_callsign).apply(pd.Series)
     for column in ["CALLSIGN_FORM", "CALLSIGN_ROOT", "CALLSIGN_PREFIX3"]:
         work[column] = classifications[column]
@@ -658,6 +671,7 @@ def triage_file(
     }
 
     row_count = len(work)
+    _emit_progress(progress_callback, "Running deterministic passes", 52)
     reasons: list[list[str]] = [[] for _ in range(row_count)]
     first_pass: list[int | None] = [None] * row_count
     first_reason: list[str] = [""] * row_count
@@ -868,6 +882,7 @@ def triage_file(
     work["VKB_UPDATE_REQUIRED"] = vkb_update_required
     work["OPERATIONAL_INTEREST"] = operational_interest
 
+    _emit_progress(progress_callback, "Applying analyst scoring and representative movement logic", 65)
     scoring = [_score_reasons(row_reasons) for row_reasons in reasons]
     work["ANALYST_SCORE"] = [item[0] for item in scoring]
     work["ANALYST_BAND"] = [item[1] for item in scoring]
@@ -905,10 +920,16 @@ def triage_file(
     operational_all = extracted[extracted["OPERATIONAL_INTEREST"]].copy()
     hygiene_only = extracted[extracted["VKB_HYGIENE_ONLY"]].copy()
 
+    _emit_progress(progress_callback, "Building ranked VKB candidate sheets", 76)
     unknown_operator_ranked = _build_unknown_operator_ranked(work)
     unknown_location_ranked = _build_unknown_location_ranked(work, region_prefix_to_name)
+    vkb_impact_priority = _build_vkb_impact_priority(unknown_operator_ranked, unknown_location_ranked)
+    known_interest_gaps = _build_known_interest_reference_coverage_gaps(work, interest_codes, operator_codes)
+
+    _emit_progress(progress_callback, "Building diagnostics and summary sheets", 86)
     vkb_load_audit = _build_vkb_load_audit(refs, base_dir)
     vkb_match_diagnostics = _build_vkb_match_diagnostics(work, operator_codes)
+    signal_distribution = _build_signal_distribution(work)
 
     summary = _build_summary(
         work,
@@ -918,6 +939,11 @@ def triage_file(
         multi_signal,
         unknown_operator_ranked,
         unknown_location_ranked,
+        operator_codes,
+        location_codes,
+        vkb_impact_priority,
+        signal_distribution,
+        known_interest_gaps,
     )
     readme = pd.DataFrame(
         [
@@ -936,6 +962,7 @@ def triage_file(
         "04_VKB_HYGIENE_ONLY": hygiene_only,
         "05_UNKNOWN_OPERATOR_RANKED": unknown_operator_ranked,
         "06_UNKNOWN_LOCATION_RANKED": unknown_location_ranked,
+        "07_VKB_IMPACT_PRIORITY": vkb_impact_priority,
         "07_VKB_MATCH_DIAGNOSTICS": vkb_match_diagnostics,
         "08_VKB_LOAD_AUDIT": vkb_load_audit,
         "09_EXTRACTED_ALL_AUDIT": extracted,
@@ -949,16 +976,20 @@ def triage_file(
         "17_PASS_MILITARY_LOCATIONS": _pass_sheet(work, "VKB_MILITARY", "MILITARY_LOCATIONS"),
         "18_PASS_ZZZZ": _pass_sheet(work, "ZZZZ", "ZZZZ"),
         "19_PASS_SENSITIVE_REGIONS": _pass_sheet(work, "SENSITIVE_REGION", "SENSITIVE_REGIONS"),
+        "21_KNOWN_INTEREST_GAPS": known_interest_gaps,
+        "22_SIGNAL_DISTRIBUTION": signal_distribution,
         "20_SUMMARY": summary,
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{input_path.stem}_triaged.xlsx"
+    _emit_progress(progress_callback, "Writing Excel workbook", 95)
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         for sheet_name, sheet_df in sheets.items():
             sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
         _format_workbook(writer.book)
 
+    _emit_progress(progress_callback, "Complete", 100)
     return TriageResult(
         output_path=output_path,
         warnings=warnings,
@@ -1163,46 +1194,187 @@ def _build_vkb_match_diagnostics(work: pd.DataFrame, operator_codes: set[str]) -
     return df.sort_values(["MATCH_STATUS", "COUNT_RAW_ROWS", "NORMALISED_CODE"], ascending=[True, False, True], kind="mergesort") if not df.empty else df
 
 
-def _build_summary(work: pd.DataFrame, extracted: pd.DataFrame, remainder: pd.DataFrame, analyst_priority: pd.DataFrame, multi_signal: pd.DataFrame, unknown_operator_ranked: pd.DataFrame, unknown_location_ranked: pd.DataFrame) -> pd.DataFrame:
-    rows = [
-        {"BLOCK": "METRIC", "METRIC": "total input raw rows", "VALUE": len(work)},
-        {"BLOCK": "METRIC", "METRIC": "exact unique input rows", "VALUE": work["EXACT_ROW_HASH"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "exact duplicate excess rows", "VALUE": len(work) - work["EXACT_ROW_HASH"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "unique strict movement count", "VALUE": work["MOVEMENT_KEY_STRICT"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "unique loose movement count", "VALUE": work["MOVEMENT_KEY_LOOSE"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "raw extracted rows", "VALUE": len(extracted)},
-        {"BLOCK": "METRIC", "METRIC": "unique strict extracted movements", "VALUE": extracted["MOVEMENT_KEY_STRICT"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "raw remainder rows", "VALUE": len(remainder)},
-        {"BLOCK": "METRIC", "METRIC": "unique strict remainder movements", "VALUE": remainder["MOVEMENT_KEY_STRICT"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "VKB hygiene only raw rows", "VALUE": int(work["VKB_HYGIENE_ONLY"].sum())},
-        {"BLOCK": "METRIC", "METRIC": "VKB hygiene only unique strict movements", "VALUE": work.loc[work["VKB_HYGIENE_ONLY"], "MOVEMENT_KEY_STRICT"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "analyst priority raw rows", "VALUE": len(analyst_priority)},
-        {"BLOCK": "METRIC", "METRIC": "analyst priority unique strict movements", "VALUE": analyst_priority["MOVEMENT_KEY_STRICT"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "multi-signal raw rows", "VALUE": len(multi_signal)},
-        {"BLOCK": "METRIC", "METRIC": "multi-signal unique strict movements", "VALUE": multi_signal["MOVEMENT_KEY_STRICT"].nunique()},
-        {"BLOCK": "METRIC", "METRIC": "unknown operator candidate count", "VALUE": len(unknown_operator_ranked)},
-        {"BLOCK": "METRIC", "METRIC": "unknown location candidate count", "VALUE": len(unknown_location_ranked)},
-        {"BLOCK": "METRIC", "METRIC": "output timestamp", "VALUE": datetime.now().isoformat(timespec="seconds")},
+
+def _build_vkb_impact_priority(
+    unknown_operator_ranked: pd.DataFrame, unknown_location_ranked: pd.DataFrame
+) -> pd.DataFrame:
+    """Combine operator and location VKB gaps into one maintenance queue."""
+    rows: list[dict[str, object]] = []
+    for _, row in unknown_location_ranked.iterrows():
+        rows.append({
+            "CANDIDATE_TYPE": "LOCATION",
+            "CODE": row.get("ICAO", ""),
+            "UNIQUE_MOVEMENTS_AFFECTED": row.get("COUNT_UNIQUE_STRICT_MOVEMENTS", 0),
+            "RAW_ROWS_AFFECTED": row.get("COUNT_RAW_ROWS", 0),
+            "MAX_ANALYST_SCORE": row.get("MAX_ANALYST_SCORE", 0),
+            "SUGGESTED_ACTION": "enrich_location",
+        })
+    for _, row in unknown_operator_ranked.iterrows():
+        rows.append({
+            "CANDIDATE_TYPE": "OPERATOR",
+            "CODE": row.get("TRICODE", ""),
+            "UNIQUE_MOVEMENTS_AFFECTED": row.get("COUNT_UNIQUE_STRICT_MOVEMENTS", 0),
+            "RAW_ROWS_AFFECTED": row.get("COUNT_RAW_ROWS", 0),
+            "MAX_ANALYST_SCORE": row.get("MAX_ANALYST_SCORE", 0),
+            "SUGGESTED_ACTION": "enrich_operator",
+        })
+    columns = [
+        "RANK",
+        "CANDIDATE_TYPE",
+        "CODE",
+        "UNIQUE_MOVEMENTS_AFFECTED",
+        "RAW_ROWS_AFFECTED",
+        "MAX_ANALYST_SCORE",
+        "SUGGESTED_ACTION",
     ]
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    df = df.sort_values(
+        ["UNIQUE_MOVEMENTS_AFFECTED", "RAW_ROWS_AFFECTED", "MAX_ANALYST_SCORE", "CANDIDATE_TYPE", "CODE"],
+        ascending=[False, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    df.insert(0, "RANK", range(1, len(df) + 1))
+    return df[columns]
+
+
+def _build_known_interest_reference_coverage_gaps(
+    work: pd.DataFrame, interest_codes: set[str], operator_codes: set[str]
+) -> pd.DataFrame:
+    """Find configured interest roots observed in input but absent from standard callsign VKB."""
+    rows: list[dict[str, object]] = []
+    observed = work[work["CALLSIGN_FORM"] == "TRICODE_STYLE"].copy()
+    for root, group in observed.groupby("CALLSIGN_ROOT"):
+        code = normalize_code(root)
+        if not code or code not in interest_codes or code in operator_codes:
+            continue
+        rows.append({
+            "ROOT": code,
+            "RAW_ROWS": len(group),
+            "UNIQUE_MOVEMENTS": group["MOVEMENT_KEY_STRICT"].nunique(),
+            "MAX_ANALYST_SCORE": int(group["ANALYST_SCORE"].max()),
+            "SUGGESTED_ACTION": "add_to_standard_vkb_or_mark_interest_only",
+        })
+    columns = ["ROOT", "RAW_ROWS", "UNIQUE_MOVEMENTS", "MAX_ANALYST_SCORE", "SUGGESTED_ACTION"]
+    df = pd.DataFrame(rows, columns=columns)
+    return df.sort_values(["UNIQUE_MOVEMENTS", "RAW_ROWS", "MAX_ANALYST_SCORE", "ROOT"], ascending=[False, False, False, True], kind="mergesort") if not df.empty else df
+
+
+def _build_signal_distribution(work: pd.DataFrame) -> pd.DataFrame:
+    """Summarise operational and VKB-maintenance signal volumes."""
+    signal_specs = [
+        ("Known interest callsign", "KNOWN_ICAO_INTEREST"),
+        ("Longform/nonstandard callsign", "LONGFORM_CALLSIGN"),
+        ("VKB military/state location", "VKB_MILITARY"),
+        ("Sensitive region route", "SENSITIVE_REGION"),
+        ("Aircraft type of interest", "INTEREST_AIRCRAFT_TYPE"),
+        ("Operator not in loaded VKB", "UNKNOWN_OPERATOR_TRICODE"),
+        ("Location not in loaded VKB", "NOT_IN_VKB"),
+        ("ZZZZ aerodrome", "ZZZZ"),
+    ]
+    rows: list[dict[str, object]] = []
+    reasons = work["ALL_MATCH_REASONS"].astype(str)
+    for label, token in signal_specs:
+        mask = reasons.map(lambda value, token=token: token in value)
+        subset = work[mask]
+        rows.append({
+            "SIGNAL": label,
+            "RAW_ROWS": len(subset),
+            "UNIQUE_STRICT_MOVEMENTS": subset["MOVEMENT_KEY_STRICT"].nunique(),
+            "REPRESENTATIVE_ROWS": int(subset["IS_REPRESENTATIVE_MOVEMENT_ROW"].sum()) if not subset.empty else 0,
+        })
+    return pd.DataFrame(rows, columns=["SIGNAL", "RAW_ROWS", "UNIQUE_STRICT_MOVEMENTS", "REPRESENTATIVE_ROWS"])
+
+
+def _coverage_percent(known_count: int, observed_count: int) -> str:
+    if observed_count == 0:
+        return "n/a"
+    return f"{(known_count / observed_count) * 100:.1f}%"
+
+def _build_summary(work: pd.DataFrame, extracted: pd.DataFrame, remainder: pd.DataFrame, analyst_priority: pd.DataFrame, multi_signal: pd.DataFrame, unknown_operator_ranked: pd.DataFrame, unknown_location_ranked: pd.DataFrame, operator_codes: set[str], location_codes: set[str], vkb_impact_priority: pd.DataFrame, signal_distribution: pd.DataFrame, known_interest_gaps: pd.DataFrame) -> pd.DataFrame:
+    observed_roots = set(work.loc[work["CALLSIGN_FORM"] == "TRICODE_STYLE", "CALLSIGN_ROOT"].map(normalize_code)) - {""}
+    known_observed_roots = observed_roots & operator_codes
+    location_fields = [field for field in ("ADEP", "ADES", "ALT1", "ALT2") if field in work.columns]
+    observed_locations: set[str] = set()
+    for field in location_fields:
+        observed_locations.update(set(work[field].map(normalize_code)) - {""})
+    known_observed_locations = observed_locations & location_codes
+
+    rows = [
+        {"BLOCK": "INPUT ACCOUNTING", "METRIC": "total input raw rows", "VALUE": len(work)},
+        {"BLOCK": "INPUT ACCOUNTING", "METRIC": "raw extracted rows", "VALUE": len(extracted)},
+        {"BLOCK": "INPUT ACCOUNTING", "METRIC": "raw remainder rows", "VALUE": len(remainder)},
+        {"BLOCK": "INPUT ACCOUNTING", "METRIC": "output timestamp", "VALUE": datetime.now().isoformat(timespec="seconds")},
+        {"BLOCK": "DEDUPLICATION", "METRIC": "exact unique input rows", "VALUE": work["EXACT_ROW_HASH"].nunique()},
+        {"BLOCK": "DEDUPLICATION", "METRIC": "exact duplicate excess rows", "VALUE": len(work) - work["EXACT_ROW_HASH"].nunique()},
+        {"BLOCK": "DEDUPLICATION", "METRIC": "unique strict movement count", "VALUE": work["MOVEMENT_KEY_STRICT"].nunique()},
+        {"BLOCK": "DEDUPLICATION", "METRIC": "unique loose movement count", "VALUE": work["MOVEMENT_KEY_LOOSE"].nunique()},
+        {"BLOCK": "ANALYST WORKLOAD", "METRIC": "unique strict extracted movements", "VALUE": extracted["MOVEMENT_KEY_STRICT"].nunique()},
+        {"BLOCK": "ANALYST WORKLOAD", "METRIC": "unique strict remainder movements", "VALUE": remainder["MOVEMENT_KEY_STRICT"].nunique()},
+        {"BLOCK": "ANALYST WORKLOAD", "METRIC": "analyst priority raw rows", "VALUE": len(analyst_priority)},
+        {"BLOCK": "ANALYST WORKLOAD", "METRIC": "analyst priority unique strict movements", "VALUE": analyst_priority["MOVEMENT_KEY_STRICT"].nunique()},
+        {"BLOCK": "ANALYST WORKLOAD", "METRIC": "multi-signal raw rows", "VALUE": len(multi_signal)},
+        {"BLOCK": "ANALYST WORKLOAD", "METRIC": "multi-signal unique strict movements", "VALUE": multi_signal["MOVEMENT_KEY_STRICT"].nunique()},
+        {"BLOCK": "VKB MAINTENANCE WORKLOAD", "METRIC": "VKB hygiene only raw rows", "VALUE": int(work["VKB_HYGIENE_ONLY"].sum())},
+        {"BLOCK": "VKB MAINTENANCE WORKLOAD", "METRIC": "VKB hygiene only unique strict movements", "VALUE": work.loc[work["VKB_HYGIENE_ONLY"], "MOVEMENT_KEY_STRICT"].nunique()},
+        {"BLOCK": "VKB MAINTENANCE WORKLOAD", "METRIC": "unknown operator candidate count", "VALUE": len(unknown_operator_ranked)},
+        {"BLOCK": "VKB MAINTENANCE WORKLOAD", "METRIC": "unknown location candidate count", "VALUE": len(unknown_location_ranked)},
+        {"BLOCK": "VKB MAINTENANCE WORKLOAD", "METRIC": "known-interest reference coverage gaps", "VALUE": len(known_interest_gaps)},
+        {"BLOCK": "VKB COVERAGE", "METRIC": "observed tricode roots", "VALUE": len(observed_roots)},
+        {"BLOCK": "VKB COVERAGE", "METRIC": "known tricode roots in loaded VKB", "VALUE": len(known_observed_roots)},
+        {"BLOCK": "VKB COVERAGE", "METRIC": "operator VKB coverage percent", "VALUE": _coverage_percent(len(known_observed_roots), len(observed_roots))},
+        {"BLOCK": "VKB COVERAGE", "METRIC": "observed location codes", "VALUE": len(observed_locations)},
+        {"BLOCK": "VKB COVERAGE", "METRIC": "known location codes in loaded VKB", "VALUE": len(known_observed_locations)},
+        {"BLOCK": "VKB COVERAGE", "METRIC": "location VKB coverage percent", "VALUE": _coverage_percent(len(known_observed_locations), len(observed_locations))},
+    ]
+
     def add_top(block: str, df: pd.DataFrame, key: str, value: str) -> None:
         if df.empty or key not in df or value not in df:
             return
         for _, row in df.head(10).iterrows():
             rows.append({"BLOCK": block, "METRIC": row[key], "VALUE": row[value]})
-    add_top("Top unknown operators", unknown_operator_ranked, "TRICODE", "COUNT_UNIQUE_STRICT_MOVEMENTS")
-    add_top("Top missing locations", unknown_location_ranked, "ICAO", "COUNT_UNIQUE_STRICT_MOVEMENTS")
+
+    add_top("TOP UNKNOWN OPERATORS", unknown_operator_ranked, "TRICODE", "COUNT_UNIQUE_STRICT_MOVEMENTS")
+    add_top("TOP MISSING LOCATIONS", unknown_location_ranked, "ICAO", "COUNT_UNIQUE_STRICT_MOVEMENTS")
+
     callsigns = work[work["OPERATIONAL_INTEREST"]].groupby("CALLSIGN_ROOT").agg(MAX_SCORE=("ANALYST_SCORE", "max"), COUNT=("CALLSIGN_ROOT", "size")).reset_index().sort_values(["MAX_SCORE", "COUNT"], ascending=[False, False])
     for _, row in callsigns.head(10).iterrows():
-        rows.append({"BLOCK": "Top operational callsign roots", "METRIC": row["CALLSIGN_ROOT"], "VALUE": f"max_score={row['MAX_SCORE']}; count={row['COUNT']}"})
+        rows.append({"BLOCK": "TOP OPERATIONAL CALLSIGN ROOTS", "METRIC": row["CALLSIGN_ROOT"], "VALUE": f"max_score={row['MAX_SCORE']}; count={row['COUNT']}"})
+
     routes = work[work["OPERATIONAL_INTEREST"]].assign(ROUTE=lambda df: df["ADEP"].map(_row_value) + "→" + df["ADES"].map(_row_value)).groupby("ROUTE").size().sort_values(ascending=False)
     for route, count in routes.head(10).items():
-        rows.append({"BLOCK": "Top routes by operational interest", "METRIC": route, "VALUE": int(count)})
+        rows.append({"BLOCK": "TOP ROUTES BY OPERATIONAL INTEREST", "METRIC": route, "VALUE": int(count)})
+
     types = work[work["ALL_MATCH_REASONS"].map(lambda value: "INTEREST_AIRCRAFT_TYPE" in str(value))].groupby("ATYP").size().sort_values(ascending=False)
     for atyp, count in types.head(10).items():
-        rows.append({"BLOCK": "Top aircraft types of interest", "METRIC": atyp, "VALUE": int(count)})
+        rows.append({"BLOCK": "TOP AIRCRAFT TYPES OF INTEREST", "METRIC": atyp, "VALUE": int(count)})
+
     combos = work[work["MULTI_SIGNAL"]].groupby("INTELLIGENCE_REASONS").size().sort_values(ascending=False)
     for combo, count in combos.head(10).items():
-        rows.append({"BLOCK": "Top multi-signal reason combinations", "METRIC": combo, "VALUE": int(count)})
+        rows.append({"BLOCK": "TOP MULTI-SIGNAL COMBINATIONS", "METRIC": combo, "VALUE": int(count)})
+
+    for _, row in signal_distribution.iterrows():
+        rows.append({
+            "BLOCK": "SIGNAL DISTRIBUTION",
+            "METRIC": row["SIGNAL"],
+            "VALUE": f"raw_rows={row['RAW_ROWS']}; unique_strict_movements={row['UNIQUE_STRICT_MOVEMENTS']}; representative_rows={row['REPRESENTATIVE_ROWS']}",
+        })
+
+    for _, row in vkb_impact_priority.head(10).iterrows():
+        rows.append({
+            "BLOCK": "VKB IMPACT PRIORITY",
+            "METRIC": f"{row['RANK']}. {row['CANDIDATE_TYPE']} {row['CODE']}",
+            "VALUE": f"unique_movements={row['UNIQUE_MOVEMENTS_AFFECTED']}; raw_rows={row['RAW_ROWS_AFFECTED']}; max_score={row['MAX_ANALYST_SCORE']}; action={row['SUGGESTED_ACTION']}",
+        })
+
+    for _, row in known_interest_gaps.head(10).iterrows():
+        rows.append({
+            "BLOCK": "KNOWN_INTEREST_REFERENCE_COVERAGE_GAPS",
+            "METRIC": row["ROOT"],
+            "VALUE": f"raw_rows={row['RAW_ROWS']}; unique_movements={row['UNIQUE_MOVEMENTS']}; max_score={row['MAX_ANALYST_SCORE']}; action={row['SUGGESTED_ACTION']}",
+        })
+
     return pd.DataFrame(rows, columns=["BLOCK", "METRIC", "VALUE"])
 
 def _format_workbook(workbook) -> None:
