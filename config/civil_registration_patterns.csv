@@ -1,0 +1,19 @@
+COUNTRY,PREFIX,NORMALISED_REGEX,CONFIDENCE,NOTES
+Switzerland,HB,"^HB[A-Z]{3,4}$",HIGH,Hyphen-stripped HB registrations
+France,F,^F[A-Z]{4}$,MEDIUM,F-AAAA civil/state collision possible
+Isle of Man,M,^M[A-Z]{4}$,MEDIUM,M-AAAA wordlike registration collision possible
+Canada,C,^C[FGI][A-Z]{3}$,HIGH,C-F/G/I registrations
+Australia,VH,^VH[A-Z]{3}$,HIGH,VH registrations
+New Zealand,ZK,^ZK[A-Z]{3}$,HIGH,ZK registrations
+Belgium,OO,^OO[A-Z]{3}$,HIGH,OO registrations
+Netherlands,PH,^PH[A-Z]{3}$,HIGH,PH registrations
+Denmark,OY,^OY[A-Z]{3}$,HIGH,OY registrations
+Sweden,SE,^SE[A-Z]{3}$,HIGH,SE registrations
+Norway,LN,^LN[A-Z]{3}$,HIGH,LN registrations
+Finland,OH,^OH[A-Z]{3}$,HIGH,OH registrations
+Ireland,EI,^EI[A-Z]{3}$,HIGH,EI registrations
+Germany,D,^D[A-Z]{4}$,HIGH,D registrations
+United Kingdom,G,^G[A-Z]{4}$,HIGH,G registrations
+Austria,OE,^OE[A-Z]{3}$,HIGH,OE registrations
+United States,N,"^N[1-9][0-9]{0,4}[A-Z]{0,2}$",HIGH,N-number registrations
+Spain,EC,^EC[A-Z]{3}$,HIGH,Spanish EC registrations

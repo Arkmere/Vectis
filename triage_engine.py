@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import subprocess
+import warnings as py_warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +67,35 @@ ADDED_COLUMNS = [
     "CALLSIGN_FORM",
     "CALLSIGN_ROOT",
     "CALLSIGN_PREFIX3",
+    "RM_STATUS",
+    "RM_SUPPRESSION_FLAG",
+    "RM_IDENTIFIER_CLASS",
+    "RM_IDENTIFIER_COUNTRY_HINT",
+    "RM_IDENTIFIER_SERVICE_HINT",
+    "RM_PATTERN_MATCH",
+    "RM_PATTERN_CONFIDENCE",
+    "RM_CONTEXT_CONFLICT_FLAG",
+    "RM_CLASSIFICATION_EXPLANATION",
+    "ARCID_AIRFRAME_IDENTIFIER_MATCH",
+    "ARCID_SPECIAL_FORM",
+    "ARCID_DERIVED_REGISTRATION",
+    "ARCID_REGISTRATION_SCORE",
+    "ARCID_LONGFORM_SCORE",
+    "ARCID_CLASSIFICATION_CONFIDENCE",
+    "ARCID_REGISTRATION_CANDIDATE",
+    "ARCID_POSSIBLE_REG_PREFIX",
+    "ARCID_POSSIBLE_REG_COUNTRY",
+    "ARCID_LONGFORM_CANDIDATE",
+    "ARCID_AMBIGUITY_FLAG",
+    "ARCID_AMBIGUITY_REASON",
+    "ARCID_COLLISION_FLAG",
+    "ARCID_COLLISION_REASON",
+    "ARCID_CONTEXT_EXPLANATION",
+    "ARCID_REVIEW_RECOMMENDATION",
+    "ATYP_CONTEXT",
+    "ATYP_CONTEXT_SOURCE",
+    "ATYP_CONTEXT_CONFIDENCE",
+    "MILITARY_TYPE_INDICATOR",
     "EXACT_ROW_HASH",
     "EXACT_DUPLICATE_GROUP_SIZE",
     "IS_FIRST_EXACT_DUPLICATE",
@@ -109,6 +139,30 @@ CONFIG_REFERENCE_SPECS = {
         "NOTES",
     ],
     "config/longform_roots.csv": ["ROOT", "CATEGORY", "NOTES"],
+    "config/civil_registration_patterns.csv": [
+        "COUNTRY",
+        "PREFIX",
+        "NORMALISED_REGEX",
+        "CONFIDENCE",
+        "NOTES",
+    ],
+    "config/military_serial_patterns.csv": [
+        "COUNTRY",
+        "SERVICE",
+        "PATTERN_NAME",
+        "NORMALISED_REGEX",
+        "CONFIDENCE",
+        "NOTES",
+    ],
+    "config/wordlike_registrations.csv": [
+        "REGISTRATION",
+        "NORMALISED",
+        "EXPECTED_ATYP",
+        "COUNTRY",
+        "CONFIDENCE",
+        "NOTES",
+    ],
+    "config/aircraft_type_context.csv": ["ATYP", "CONTEXT", "WEIGHT", "NOTES"],
 }
 
 FDMS_REFERENCE_SPECS = {
@@ -200,24 +254,117 @@ def _movement_key(row: pd.Series, fields: Iterable[str]) -> str:
     return "|".join(normalize_code(row.get(field, "")) for field in fields)
 
 
+def _reference_records(df: pd.DataFrame) -> list[dict[str, str]]:
+    """Return a string-only record list from a reference DataFrame."""
+    return [
+        {column: _clean(row.get(column, "")) for column in df.columns}
+        for _, row in df.iterrows()
+    ]
+
+
+def _first_regex_match(code: str, records: list[dict[str, str]]) -> dict[str, str]:
+    for record in records:
+        pattern = _clean(record.get("NORMALISED_REGEX", ""))
+        if pattern and re.match(pattern, code):
+            return record
+    return {}
+
+
+def _load_context_records(refs: dict[str, pd.DataFrame]) -> dict[str, object]:
+    return {
+        "civil_patterns": _reference_records(refs["config/civil_registration_patterns.csv"]),
+        "military_patterns": _reference_records(refs["config/military_serial_patterns.csv"]),
+        "wordlike_registrations": _reference_records(refs["config/wordlike_registrations.csv"]),
+        "aircraft_context": _reference_records(refs["config/aircraft_type_context.csv"]),
+    }
+
+
+def is_spanish_medical_registration_callsign(value: object) -> bool:
+    code = normalize_code(value)
+    return bool(re.match(r"^MEEC[A-Z]{3}$", code))
+
+
+def derive_spanish_medical_registration(value: object) -> str:
+    code = normalize_code(value)
+    if not re.match(r"^MEEC[A-Z]{3}$", code):
+        return ""
+    reg = code[2:]
+    return f"{reg[:2]}-{reg[2:]}"
+
+
+def _classify_rm_status(value: object) -> tuple[str, bool, str]:
+    code = normalize_code(value)
+    if not code:
+        return "RM_BLANK", False, "RM is blank; neutral for airframe identification."
+    if code in {"ON", "ONFILE"}:
+        return "RM_ONFILE_SUPPRESSED", True, "RM indicates an on-file/suppressed registration."
+    if code == "KNOWN":
+        return "RM_KNOWN_SUPPRESSED", True, "RM indicates a known but suppressed registration."
+    if code in {"NIL", "NONE", "UNKNOWN", "UNK"}:
+        return "RM_PLACEHOLDER_OTHER", False, "RM is a placeholder rather than an airframe identifier."
+    return "AIRFRAME_IDENTIFIER_PRESENT", False, "RM contains an airframe identifier candidate."
+
+
+def _registration_match(code: str, records: list[dict[str, str]]) -> dict[str, str]:
+    return _first_regex_match(code, records)
+
+
+def _military_serial_match(code: str, records: list[dict[str, str]]) -> dict[str, str]:
+    return _first_regex_match(code, records)
+
+
+def _wordlike_registration_match(code: str, records: list[dict[str, str]]) -> dict[str, str]:
+    for record in records:
+        if normalize_code(record.get("NORMALISED", "")) == code:
+            return record
+    return {}
+
+
 def is_registration_callsign(value: object) -> bool:
-    """Conservative registration-style callsign detector for v0.1."""
+    """Conservative built-in registration-style callsign detector."""
     code = normalize_code(value)
     if not code:
         return False
     patterns = [
-        r"^N[1-9][0-9]{0,4}[A-Z]{0,2}$",  # N650RX, N556PM, N60125
-        r"^[GDF][A-Z]{4}$",  # GABCD / DABCD / FXXXX, optionally hyphenated before normalization
-        r"^OE[A-Z]{3}$",  # OEABC / OE-ABC
+        r"^N[1-9][0-9]{0,4}[A-Z]{0,2}$",
+        r"^HB[A-Z]{3,4}$",
+        r"^F[A-Z]{4}$",
+        r"^M[A-Z]{4}$",
+        r"^C[FGI][A-Z]{3}$",
+        r"^VH[A-Z]{3}$",
+        r"^ZK[A-Z]{3}$",
+        r"^OO[A-Z]{3}$",
+        r"^PH[A-Z]{3}$",
+        r"^OY[A-Z]{3}$",
+        r"^SE[A-Z]{3}$",
+        r"^LN[A-Z]{3}$",
+        r"^OH[A-Z]{3}$",
+        r"^EI[A-Z]{3}$",
+        r"^D[A-Z]{4}$",
+        r"^G[A-Z]{4}$",
+        r"^OE[A-Z]{3}$",
+        r"^EC[A-Z]{3}$",
     ]
     return any(re.match(pattern, code) for pattern in patterns)
 
 
 def classify_callsign(arcid: str) -> dict[str, str]:
-    """Classify an ARCID into v0.1 callsign form, root, and three-letter prefix."""
+    """Classify an ARCID into callsign form, root, and three-letter prefix.
+
+    Standard tricode-style callsigns are intentionally strict: exactly three
+    leading letters followed by a digit. Pure-letter strings never create an
+    ordinary unknown-operator tricode candidate.
+    """
     code = normalize_code(arcid)
     if not code:
-        return {"CALLSIGN_FORM": "UNKNOWN", "CALLSIGN_ROOT": "", "CALLSIGN_PREFIX3": ""}
+        return {"CALLSIGN_FORM": "UNKNOWN_FORM", "CALLSIGN_ROOT": "", "CALLSIGN_PREFIX3": ""}
+
+    if is_spanish_medical_registration_callsign(code):
+        return {
+            "CALLSIGN_FORM": "SPANISH_MEDICAL_REGISTRATION_CALLSIGN",
+            "CALLSIGN_ROOT": code,
+            "CALLSIGN_PREFIX3": code[:3],
+        }
 
     if is_registration_callsign(code):
         return {
@@ -226,29 +373,184 @@ def classify_callsign(arcid: str) -> dict[str, str]:
             "CALLSIGN_PREFIX3": code[:3],
         }
 
-    leading_letters = re.match(r"^([A-Z]+)", code)
-    root = leading_letters.group(1) if leading_letters else ""
-
-    if len(root) >= 4 and re.match(r"^[A-Z]{4,}\d", code):
-        return {
-            "CALLSIGN_FORM": "LONGFORM_NONSTANDARD",
-            "CALLSIGN_ROOT": root,
-            "CALLSIGN_PREFIX3": root[:3],
-        }
-
-    if re.match(r"^[A-Z]{3}[A-Z0-9]+$", code):
+    if re.match(r"^[A-Z]{3}[0-9][A-Z0-9]*$", code):
         return {
             "CALLSIGN_FORM": "TRICODE_STYLE",
             "CALLSIGN_ROOT": code[:3],
             "CALLSIGN_PREFIX3": code[:3],
         }
 
+    leading_letters = re.match(r"^([A-Z]+)", code)
+    root = leading_letters.group(1) if leading_letters else ""
+    if len(root) >= 4 and re.match(r"^[A-Z]{4,}[A-Z0-9]*$", code):
+        return {
+            "CALLSIGN_FORM": "LONGFORM_NONSTANDARD",
+            "CALLSIGN_ROOT": root,
+            "CALLSIGN_PREFIX3": root[:3],
+        }
+
     return {
-        "CALLSIGN_FORM": "UNKNOWN",
+        "CALLSIGN_FORM": "UNKNOWN_FORM",
         "CALLSIGN_ROOT": root,
         "CALLSIGN_PREFIX3": root[:3] if root else "",
     }
 
+
+def classify_arcid_context(
+    arcid: object,
+    rm: object = "",
+    atyp: object = "",
+    *,
+    civil_patterns: list[dict[str, str]] | None = None,
+    military_patterns: list[dict[str, str]] | None = None,
+    wordlike_registrations: list[dict[str, str]] | None = None,
+    aircraft_context: list[dict[str, str]] | None = None,
+    known_longform_roots: set[str] | None = None,
+    interest_types: set[str] | None = None,
+) -> dict[str, object]:
+    civil_patterns = civil_patterns or []
+    military_patterns = military_patterns or []
+    wordlike_registrations = wordlike_registrations or []
+    aircraft_context = aircraft_context or []
+    known_longform_roots = known_longform_roots or set()
+    interest_types = interest_types or set()
+
+    code = normalize_code(arcid)
+    rm_code = normalize_code(rm)
+    atyp_code = normalize_code(atyp)
+    base = classify_callsign(code)
+    rm_status, rm_suppression, rm_explanation = _classify_rm_status(rm)
+    rm_match = _registration_match(rm_code, civil_patterns) if rm_code else {}
+    rm_mil_match = _military_serial_match(rm_code, military_patterns) if rm_code else {}
+    arc_reg_match = _registration_match(code, civil_patterns) if code else {}
+    arc_mil_match = _military_serial_match(code, military_patterns) if code else {}
+    wordlike_match = _wordlike_registration_match(code, wordlike_registrations) if code else {}
+    atyp_match = next((record for record in aircraft_context if normalize_code(record.get("ATYP", "")) == atyp_code), {})
+    atyp_context = _clean(atyp_match.get("CONTEXT", "")) if atyp_match else ""
+    if not atyp_context and atyp_code in interest_types:
+        atyp_context = "MILITARY_OR_GOVERNMENT_LIKELY"
+    military_type = atyp_context == "MILITARY_OR_GOVERNMENT_LIKELY" or atyp_code in interest_types
+    arcid_rm_match = bool(code and rm_code and code == rm_code and rm_status == "AIRFRAME_IDENTIFIER_PRESENT")
+
+    registration_score = 0
+    longform_score = 0
+    explanation: list[str] = []
+    review = ""
+    special_form = ""
+    derived_registration = ""
+    classification_confidence = "MEDIUM" if code else "LOW"
+    form = base["CALLSIGN_FORM"]
+
+    if is_spanish_medical_registration_callsign(code):
+        special_form = "SPANISH_MEDICAL_REGISTRATION_CALLSIGN"
+        derived_registration = derive_spanish_medical_registration(code)
+        form = "SPANISH_MEDICAL_REGISTRATION_CALLSIGN"
+        registration_score = 95
+        classification_confidence = "HIGH"
+        explanation.append(f"ARCID matches Spanish medical ME+EC registration-derived pattern; derived registration {derived_registration}.")
+        review = "treat_as_registration_derived_callsign"
+    elif arc_mil_match or (arcid_rm_match and rm_mil_match):
+        form = "MILITARY_SERIAL_CANDIDATE"
+        registration_score = 85
+        classification_confidence = _clean((arc_mil_match or rm_mil_match).get("CONFIDENCE", "MEDIUM"))
+        explanation.append("ARCID/RM matches a military serial pattern; do not treat as unknown operator tricode.")
+        review = "review_airframe_serial_context"
+    elif wordlike_match and (arcid_rm_match or rm_suppression or military_type):
+        if rm_suppression and military_type:
+            form = "LONGFORM_NONSTANDARD"
+            longform_score = 80
+            registration_score = 35
+            classification_confidence = "MEDIUM"
+            explanation.append("Word-like ARCID collides with known registration, but suppressed RM and military type strengthen longform/nonstandard interpretation.")
+            review = "review_known_longform_or_operational_callsign"
+        else:
+            form = "AMBIGUOUS_REGISTRATION_OR_LONGFORM"
+            registration_score = 80
+            longform_score = 60
+            classification_confidence = "MEDIUM"
+            explanation.append("ARCID is a known word-like registration collision; ARCID/RM context prevents unknown-tricode classification.")
+            review = "manual_review_registration_longform_collision"
+    elif arcid_rm_match and (arc_reg_match or rm_match):
+        form = "AIRFRAME_IDENTIFIER_CALLSIGN"
+        registration_score = 90
+        classification_confidence = _clean((arc_reg_match or rm_match).get("CONFIDENCE", "HIGH"))
+        explanation.append("ARCID equals RM and matches a civil registration pattern; treated as airframe identifier.")
+        review = "treat_as_airframe_identifier"
+    elif arc_reg_match:
+        form = "REGISTRATION_CALLSIGN"
+        registration_score = 75
+        classification_confidence = _clean(arc_reg_match.get("CONFIDENCE", "MEDIUM"))
+        explanation.append("ARCID matches a civil registration pattern.")
+        review = "treat_as_registration_callsign"
+    elif arcid_rm_match:
+        form = "AIRFRAME_IDENTIFIER_CALLSIGN"
+        registration_score = 70
+        classification_confidence = "MEDIUM"
+        explanation.append("ARCID equals non-placeholder RM, strong evidence of airframe identifier use.")
+        review = "review_airframe_identifier"
+    elif form == "LONGFORM_NONSTANDARD":
+        longform_score = 70 if code in known_longform_roots else 55
+        if military_type:
+            longform_score += 10
+        classification_confidence = "HIGH" if code in known_longform_roots else "MEDIUM"
+        explanation.append("ARCID is longform/nonstandard, not strict tricode-style.")
+        review = "review_longform_callsign"
+    elif form == "TRICODE_STYLE":
+        longform_score = 0
+        classification_confidence = "HIGH"
+        explanation.append("ARCID matches strict standard tricode pattern: three letters followed by a digit.")
+        review = "standard_operator_lookup"
+    else:
+        explanation.append("ARCID did not match registration, military serial, Spanish medical, longform, or strict tricode rules.")
+        review = "manual_review_unknown_form"
+
+    if rm_suppression:
+        explanation.append(rm_explanation)
+    elif rm_status != "RM_BLANK":
+        explanation.append(rm_explanation)
+
+    reg_candidate = bool(arc_reg_match or wordlike_match or form in {"REGISTRATION_CALLSIGN", "AIRFRAME_IDENTIFIER_CALLSIGN", "SPANISH_MEDICAL_REGISTRATION_CALLSIGN", "AMBIGUOUS_REGISTRATION_OR_LONGFORM"})
+    longform_candidate = form == "LONGFORM_NONSTANDARD" or bool(wordlike_match)
+    collision_flag = bool(wordlike_match or (reg_candidate and longform_candidate))
+    ambiguity_flag = form == "AMBIGUOUS_REGISTRATION_OR_LONGFORM" or collision_flag
+    collision_reason = "word-like registration collision" if wordlike_match else ("registration and longform candidates both present" if collision_flag else "")
+    ambiguity_reason = collision_reason if ambiguity_flag else ""
+
+    identifier_match = rm_mil_match or rm_match
+    return {
+        "CALLSIGN_FORM": form,
+        "CALLSIGN_ROOT": base["CALLSIGN_ROOT"] if form == "TRICODE_STYLE" else (code if form in {"REGISTRATION_CALLSIGN", "AIRFRAME_IDENTIFIER_CALLSIGN", "MILITARY_SERIAL_CANDIDATE", "SPANISH_MEDICAL_REGISTRATION_CALLSIGN", "AMBIGUOUS_REGISTRATION_OR_LONGFORM"} else base["CALLSIGN_ROOT"]),
+        "CALLSIGN_PREFIX3": base["CALLSIGN_PREFIX3"],
+        "RM_STATUS": rm_status,
+        "RM_SUPPRESSION_FLAG": bool(rm_suppression),
+        "RM_IDENTIFIER_CLASS": "MILITARY_SERIAL_CANDIDATE" if rm_mil_match else ("CIVIL_REGISTRATION_CANDIDATE" if rm_match else ("AIRFRAME_IDENTIFIER_PRESENT" if rm_status == "AIRFRAME_IDENTIFIER_PRESENT" else "")),
+        "RM_IDENTIFIER_COUNTRY_HINT": _clean(identifier_match.get("COUNTRY", "")) if identifier_match else "",
+        "RM_IDENTIFIER_SERVICE_HINT": _clean(identifier_match.get("SERVICE", "")) if identifier_match else "",
+        "RM_PATTERN_MATCH": _clean(identifier_match.get("PATTERN_NAME", "")) or _clean(identifier_match.get("PREFIX", "")) if identifier_match else "",
+        "RM_PATTERN_CONFIDENCE": _clean(identifier_match.get("CONFIDENCE", "")) if identifier_match else "",
+        "RM_CONTEXT_CONFLICT_FLAG": bool(rm_suppression and reg_candidate),
+        "RM_CLASSIFICATION_EXPLANATION": rm_explanation,
+        "ARCID_AIRFRAME_IDENTIFIER_MATCH": bool(arcid_rm_match),
+        "ARCID_SPECIAL_FORM": special_form,
+        "ARCID_DERIVED_REGISTRATION": derived_registration,
+        "ARCID_REGISTRATION_SCORE": registration_score,
+        "ARCID_LONGFORM_SCORE": longform_score,
+        "ARCID_CLASSIFICATION_CONFIDENCE": classification_confidence,
+        "ARCID_REGISTRATION_CANDIDATE": bool(reg_candidate),
+        "ARCID_POSSIBLE_REG_PREFIX": _clean((arc_reg_match or wordlike_match).get("PREFIX", "")) or _clean(wordlike_match.get("REGISTRATION", "")).split("-")[0],
+        "ARCID_POSSIBLE_REG_COUNTRY": _clean((arc_reg_match or wordlike_match).get("COUNTRY", "")),
+        "ARCID_LONGFORM_CANDIDATE": bool(longform_candidate),
+        "ARCID_AMBIGUITY_FLAG": bool(ambiguity_flag),
+        "ARCID_AMBIGUITY_REASON": ambiguity_reason,
+        "ARCID_COLLISION_FLAG": bool(collision_flag),
+        "ARCID_COLLISION_REASON": collision_reason,
+        "ARCID_CONTEXT_EXPLANATION": " ".join(explanation),
+        "ARCID_REVIEW_RECOMMENDATION": review,
+        "ATYP_CONTEXT": atyp_context or "UNKNOWN",
+        "ATYP_CONTEXT_SOURCE": "config/aircraft_type_context.csv" if atyp_match else ("config/interest_aircraft_types.csv" if atyp_code in interest_types else ""),
+        "ATYP_CONTEXT_CONFIDENCE": _clean(atyp_match.get("WEIGHT", "")) if atyp_match else ("MEDIUM" if atyp_code in interest_types else ""),
+        "MILITARY_TYPE_INDICATOR": bool(military_type),
+    }
 
 def ensure_reference_files(base_dir: Path) -> list[str]:
     warnings: list[str] = []
@@ -636,16 +938,6 @@ def triage_file(
     warnings = ensure_reference_files(base_dir)
     refs = _load_references(base_dir)
 
-    original_columns = list(df.columns)
-    work = df.copy(deep=True)
-    _emit_progress(progress_callback, "Adding duplicate / movement identity metadata", 28)
-    _add_identity_metadata(work, original_columns)
-
-    _emit_progress(progress_callback, "Classifying callsigns", 36)
-    classifications = work["ARCID"].apply(classify_callsign).apply(pd.Series)
-    for column in ["CALLSIGN_FORM", "CALLSIGN_ROOT", "CALLSIGN_PREFIX3"]:
-        work[column] = classifications[column]
-
     interest_codes = set(
         refs["config/interest_icao_codes.csv"]["CODE"].map(normalize_code)
     ) - {""}
@@ -659,6 +951,30 @@ def triage_file(
     operator_codes = _load_standard_operator_codes(refs, base_dir)
     location_codes, military_location_codes = _load_location_reference(refs, base_dir)
     _aircraft_type_keys = _load_aircraft_type_reference(refs)
+    context_records = _load_context_records(refs)
+
+    original_columns = list(df.columns)
+    work = df.copy(deep=True)
+    _emit_progress(progress_callback, "Adding duplicate / movement identity metadata", 28)
+    _add_identity_metadata(work, original_columns)
+
+    _emit_progress(progress_callback, "Classifying callsigns", 36)
+    classifications = work.apply(
+        lambda row: classify_arcid_context(
+            row["ARCID"],
+            row["RM"],
+            row["ATYP"],
+            civil_patterns=context_records["civil_patterns"],
+            military_patterns=context_records["military_patterns"],
+            wordlike_registrations=context_records["wordlike_registrations"],
+            aircraft_context=context_records["aircraft_context"],
+            known_longform_roots=longform_roots,
+            interest_types=interest_types,
+        ),
+        axis=1,
+    ).apply(pd.Series)
+    for column in classifications.columns:
+        work[column] = classifications[column]
 
     regions_df = refs["config/sensitive_regions.csv"].copy()
     regions_df["PREFIX_NORM"] = regions_df["ICAO_PREFIX"].map(normalize_code)
@@ -774,8 +1090,10 @@ def triage_file(
     # Pass 5: Unknown operator tricodes.
     for idx, row in work.iterrows():
         root = normalize_code(row["CALLSIGN_ROOT"])
+        arcid_code = normalize_code(row["ARCID"])
         if (
             row["CALLSIGN_FORM"] == "TRICODE_STYLE"
+            and re.match(r"^[A-Z]{3}[0-9][A-Z0-9]*$", arcid_code)
             and root
             and root not in operator_codes
         ):
@@ -929,6 +1247,7 @@ def triage_file(
     _emit_progress(progress_callback, "Building diagnostics and summary sheets", 86)
     vkb_load_audit = _build_vkb_load_audit(refs, base_dir)
     vkb_match_diagnostics = _build_vkb_match_diagnostics(work, operator_codes)
+    arcid_classification_diagnostics = _build_arcid_classification_diagnostics(work)
     signal_distribution = _build_signal_distribution(work)
 
     summary = _build_summary(
@@ -965,6 +1284,7 @@ def triage_file(
         "07_VKB_IMPACT_PRIORITY": vkb_impact_priority,
         "07_VKB_MATCH_DIAGNOSTICS": vkb_match_diagnostics,
         "08_VKB_LOAD_AUDIT": vkb_load_audit,
+        "ARCID_CLASSIFICATION_DIAGNOSTICS": arcid_classification_diagnostics,
         "09_EXTRACTED_ALL_AUDIT": extracted,
         "10_REMAINDER_UNEXTRACTED": remainder,
         "11_PASS_LONGFORM_CALLSIGNS": _pass_sheet(work, "LONGFORM_CALLSIGN", "LONGFORM_CALLSIGNS"),
@@ -985,8 +1305,15 @@ def triage_file(
     output_path = output_dir / f"{input_path.stem}_triaged.xlsx"
     _emit_progress(progress_callback, "Writing Excel workbook", 95)
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        for sheet_name, sheet_df in sheets.items():
-            sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        with py_warnings.catch_warnings():
+            py_warnings.filterwarnings(
+                "ignore",
+                message="Title is more than 31 characters.*",
+                category=UserWarning,
+                module="openpyxl.workbook.child",
+            )
+            for sheet_name, sheet_df in sheets.items():
+                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
         _format_workbook(writer.book)
 
     _emit_progress(progress_callback, "Complete", 100)
@@ -1014,7 +1341,11 @@ def _sample_values(series: pd.Series, limit: int = 10, exclude_onfile: bool = Fa
 
 def _build_unknown_operator_ranked(work: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    mask = work["ALL_MATCH_REASONS"].map(lambda value: "UNKNOWN_OPERATOR_TRICODE" in str(value))
+    mask = (
+        work["ALL_MATCH_REASONS"].map(lambda value: "UNKNOWN_OPERATOR_TRICODE" in str(value))
+        & (work["CALLSIGN_FORM"] == "TRICODE_STYLE")
+        & work["ARCID"].map(lambda value: bool(re.match(r"^[A-Z]{3}[0-9][A-Z0-9]*$", normalize_code(value))))
+    )
     for tricode, group in work[mask].groupby("CALLSIGN_ROOT"):
         code = normalize_code(tricode)
         if not code:
@@ -1101,6 +1432,58 @@ def _build_unknown_location_ranked(work: pd.DataFrame, region_prefix_to_name: di
     return df.sort_values(["COUNT_UNIQUE_STRICT_MOVEMENTS", "COUNT_RAW_ROWS", "MAX_ANALYST_SCORE", "ICAO"], ascending=[False, False, False, True], kind="mergesort")
 
 
+def _build_arcid_classification_diagnostics(work: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for arcid, group in work.groupby("ARCID", dropna=False, sort=True):
+        rows.append({
+            "ARCID": _row_value(arcid),
+            "NORMALISED_ARCID": normalize_code(arcid),
+            "COUNT_RAW_ROWS": len(group),
+            "RM": _sample_values(group["RM"], 5),
+            "NORMALISED_RM": _sample_values(group["RM"].map(normalize_code), 5),
+            "ATYP": _sample_values(group["ATYP"], 5),
+            "ARCID_RM_MATCH": bool(group["ARCID_AIRFRAME_IDENTIFIER_MATCH"].any()),
+            "CALLSIGN_FORM": _sample_values(group["CALLSIGN_FORM"], 5),
+            "RM_STATUS": _sample_values(group["RM_STATUS"], 5),
+            "RM_IDENTIFIER_CLASS": _sample_values(group["RM_IDENTIFIER_CLASS"], 5),
+            "ARCID_SPECIAL_FORM": _sample_values(group["ARCID_SPECIAL_FORM"], 5),
+            "ARCID_DERIVED_REGISTRATION": _sample_values(group["ARCID_DERIVED_REGISTRATION"], 5),
+            "ARCID_REGISTRATION_SCORE": int(group["ARCID_REGISTRATION_SCORE"].max()) if len(group) else 0,
+            "ARCID_LONGFORM_SCORE": int(group["ARCID_LONGFORM_SCORE"].max()) if len(group) else 0,
+            "ARCID_CLASSIFICATION_CONFIDENCE": _sample_values(group["ARCID_CLASSIFICATION_CONFIDENCE"], 5),
+            "ARCID_REGISTRATION_CANDIDATE": bool(group["ARCID_REGISTRATION_CANDIDATE"].any()),
+            "ARCID_LONGFORM_CANDIDATE": bool(group["ARCID_LONGFORM_CANDIDATE"].any()),
+            "ARCID_COLLISION_FLAG": bool(group["ARCID_COLLISION_FLAG"].any()),
+            "ARCID_COLLISION_REASON": _sample_values(group["ARCID_COLLISION_REASON"], 5),
+            "WHY_CLASSIFIED_THIS_WAY": _sample_values(group["ARCID_CONTEXT_EXPLANATION"], 3),
+            "REVIEW_RECOMMENDATION": _sample_values(group["ARCID_REVIEW_RECOMMENDATION"], 5),
+        })
+    columns = [
+        "ARCID",
+        "NORMALISED_ARCID",
+        "COUNT_RAW_ROWS",
+        "RM",
+        "NORMALISED_RM",
+        "ATYP",
+        "ARCID_RM_MATCH",
+        "CALLSIGN_FORM",
+        "RM_STATUS",
+        "RM_IDENTIFIER_CLASS",
+        "ARCID_SPECIAL_FORM",
+        "ARCID_DERIVED_REGISTRATION",
+        "ARCID_REGISTRATION_SCORE",
+        "ARCID_LONGFORM_SCORE",
+        "ARCID_CLASSIFICATION_CONFIDENCE",
+        "ARCID_REGISTRATION_CANDIDATE",
+        "ARCID_LONGFORM_CANDIDATE",
+        "ARCID_COLLISION_FLAG",
+        "ARCID_COLLISION_REASON",
+        "WHY_CLASSIFIED_THIS_WAY",
+        "REVIEW_RECOMMENDATION",
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _build_vkb_load_audit(refs: dict[str, pd.DataFrame], base_dir: Path) -> pd.DataFrame:
     rows = []
     key_columns = {
@@ -1113,6 +1496,10 @@ def _build_vkb_load_audit(refs: dict[str, pd.DataFrame], base_dir: Path) -> pd.D
         "config/sensitive_registrations.csv": "REG",
         "config/sensitive_regions.csv": "ICAO_PREFIX",
         "config/longform_roots.csv": "ROOT",
+        "config/civil_registration_patterns.csv": "PREFIX",
+        "config/military_serial_patterns.csv": "PATTERN_NAME",
+        "config/wordlike_registrations.csv": "NORMALISED",
+        "config/aircraft_type_context.csv": "ATYP",
     }
     for resource, df in refs.items():
         key_col = key_columns.get(resource, df.columns[0] if len(df.columns) else "")
