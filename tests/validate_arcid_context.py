@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from triage_engine import (
     CONFIG_REFERENCE_SPECS,
@@ -15,7 +17,9 @@ from triage_engine import (
     classify_callsign,
     derive_spanish_medical_registration,
     is_spanish_medical_registration_callsign,
+    REQUIRED_COLUMNS,
     normalize_code,
+    triage_file,
 )
 
 
@@ -47,6 +51,50 @@ def ctx(arcid: str, rm: str = "", atyp: str = "") -> dict[str, object]:
     )
 
 
+def _base_row(arcid: str, rm: str = "", atyp: str = "B738") -> dict[str, str]:
+    row = {column: "" for column in REQUIRED_COLUMNS}
+    row.update(
+        {
+            "ARCID": arcid,
+            "ATYP": atyp,
+            "RM": rm,
+            "ADEP": "EGLL",
+            "ADES": "EIDW",
+            "IOBT": "2026-05-14T00:00:00Z",
+        }
+    )
+    return row
+
+
+def assert_workbook_unknown_operator_suppression() -> None:
+    rows = [
+        _base_row("QQQ1"),
+        _base_row("HBJAZ", "HBJAZ"),
+        _base_row("FEVER", "FEVER"),
+        _base_row("MOOSE", "MOOSE", "SKRA"),
+        _base_row("MEECCOF"),
+        _base_row("MOOSE", "ONFILE", "C17"),
+    ]
+    with TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        input_path = temp_path / "arcid_acceptance.csv"
+        output_dir = temp_path / "output"
+        pd.DataFrame(rows, columns=REQUIRED_COLUMNS).to_csv(input_path, index=False)
+        result = triage_file(input_path, output_dir, ".")
+        workbook = load_workbook(result.output_path, read_only=True)
+        assert "ARCID_CLASSIFICATION_DIAGNOSTICS" in workbook.sheetnames
+        unknown_operator_sheet = workbook["05_UNKNOWN_OPERATOR_RANKED"]
+        headers = [cell.value for cell in next(unknown_operator_sheet.iter_rows(max_row=1))]
+        tricode_idx = headers.index("TRICODE")
+        queued = {
+            row[tricode_idx]
+            for row in unknown_operator_sheet.iter_rows(min_row=2, values_only=True)
+            if row[tricode_idx]
+        }
+        assert "QQQ" in queued
+        assert not ({"HBJ", "FEV", "MOO", "MEE"} & queued)
+
+
 def main() -> None:
     assert classify_callsign("BAW123")["CALLSIGN_FORM"] == "TRICODE_STYLE"
     assert classify_callsign("BAW123")["CALLSIGN_ROOT"] == "BAW"
@@ -76,6 +124,8 @@ def main() -> None:
 
     assert ctx("MOOSE", "ONFILE", "C17")["CALLSIGN_FORM"] == "LONGFORM_NONSTANDARD"
     assert ctx("MOOSE", "MOOSE", "SKRA")["CALLSIGN_FORM"] == "AMBIGUOUS_REGISTRATION_OR_LONGFORM"
+
+    assert_workbook_unknown_operator_suppression()
 
     print("arcid_context_validation_passed")
 

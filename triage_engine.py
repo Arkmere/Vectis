@@ -215,6 +215,9 @@ PASS_NAMES = {
     9: "SENSITIVE_REGIONS",
 }
 
+STRICT_TRICODE_ARCID_RE = re.compile(r"^[A-Z]{3}[0-9][A-Z0-9]*$")
+SPANISH_MEDICAL_REGISTRATION_RE = re.compile(r"^MEEC[A-Z]{3}$")
+
 
 @dataclass(frozen=True)
 class TriageResult:
@@ -281,12 +284,12 @@ def _load_context_records(refs: dict[str, pd.DataFrame]) -> dict[str, object]:
 
 def is_spanish_medical_registration_callsign(value: object) -> bool:
     code = normalize_code(value)
-    return bool(re.match(r"^MEEC[A-Z]{3}$", code))
+    return bool(SPANISH_MEDICAL_REGISTRATION_RE.match(code))
 
 
 def derive_spanish_medical_registration(value: object) -> str:
     code = normalize_code(value)
-    if not re.match(r"^MEEC[A-Z]{3}$", code):
+    if not SPANISH_MEDICAL_REGISTRATION_RE.match(code):
         return ""
     reg = code[2:]
     return f"{reg[:2]}-{reg[2:]}"
@@ -373,7 +376,7 @@ def classify_callsign(arcid: str) -> dict[str, str]:
             "CALLSIGN_PREFIX3": code[:3],
         }
 
-    if re.match(r"^[A-Z]{3}[0-9][A-Z0-9]*$", code):
+    if STRICT_TRICODE_ARCID_RE.match(code):
         return {
             "CALLSIGN_FORM": "TRICODE_STYLE",
             "CALLSIGN_ROOT": code[:3],
@@ -1093,7 +1096,7 @@ def triage_file(
         arcid_code = normalize_code(row["ARCID"])
         if (
             row["CALLSIGN_FORM"] == "TRICODE_STYLE"
-            and re.match(r"^[A-Z]{3}[0-9][A-Z0-9]*$", arcid_code)
+            and STRICT_TRICODE_ARCID_RE.match(arcid_code)
             and root
             and root not in operator_codes
         ):
@@ -1344,7 +1347,7 @@ def _build_unknown_operator_ranked(work: pd.DataFrame) -> pd.DataFrame:
     mask = (
         work["ALL_MATCH_REASONS"].map(lambda value: "UNKNOWN_OPERATOR_TRICODE" in str(value))
         & (work["CALLSIGN_FORM"] == "TRICODE_STYLE")
-        & work["ARCID"].map(lambda value: bool(re.match(r"^[A-Z]{3}[0-9][A-Z0-9]*$", normalize_code(value))))
+        & work["ARCID"].map(lambda value: bool(STRICT_TRICODE_ARCID_RE.match(normalize_code(value))))
     )
     for tricode, group in work[mask].groupby("CALLSIGN_ROOT"):
         code = normalize_code(tricode)
