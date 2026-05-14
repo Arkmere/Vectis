@@ -353,3 +353,65 @@ Validation evidence:
 Notes:
 - `input/May test Incomplete.csv` was not present in this checkout, so the May-file manual test could not be run.
 - Generated output workbooks remain uncommitted and should not be added to git.
+
+17. Implementation QA Update — 2026-05-14 — VECTIS-GUI-001 Reconciliation
+
+Ticket: VECTIS-GUI-001-QA
+Branch: main / worktree QA branch
+Reference merge: a7ea2c7 Merge pull request #6 from Arkmere/codex/add-progress-bar-and-heartbeat-indicator
+
+Result:
+- VECTIS-GUI-001 has already been implemented and merged on main in commit a7ea2c7.
+- This QA pass reconciled the existing implementation rather than adding a new feature.
+- No ARCID/RM classification, NSCD candidate matching, scoring refinement, or workbook semantic changes were implemented in this ticket.
+
+Verified VECTIS-GUI-001 features:
+- Threaded GUI processing is present: `process_file()` starts a background `threading.Thread` named `VectisTriageWorker` and does not run `triage_file()` on the Tkinter main thread.
+- Queue-based progress updates are present: the worker posts progress, completion, and error events to `queue.Queue`; Tkinter consumes those events via `.after()` polling.
+- Tkinter widget mutation is confined to the Tkinter main-thread path: progress, status, log, messagebox, and control-state updates occur from GUI callbacks, queue polling, heartbeat, completion handling, or error handling.
+- Heartbeat is present: `_heartbeat()` updates elapsed active-processing status on a recurring `.after()` timer while processing is active.
+- Progress bar and current-stage text are present and driven by the progress queue.
+- Vectair styling is present through the Vectair colour constants, themed frames, header, accent button, progress style, and branded layout.
+- GUI controls are disabled during active processing and restored on completion or error; duplicate process requests are ignored while processing is active.
+- Missing-logo fallback is present: failed logo loading falls back to text branding and logs a non-fatal warning.
+- GUI errors are reported to both the log and `messagebox.showerror()`.
+- Output-folder opening remains present through `open_output_folder()` and backend `open_folder()`.
+- `triage_file(input_path, output_dir, reference_dir)` remains supported for existing non-GUI usage.
+- `triage_file(input_path, output_dir, reference_dir, progress_callback=callback)` is supported for GUI progress usage.
+- Local input/output `.gitignore` protection is present for `input/*.csv`, `input/*.xlsx`, `output/*.xlsx`, and `output/*.xlsm`.
+- `VECTIS_IMPLEMENTATION_PLAN.md` is present at the repository root and records Phase 1 GUI requirements.
+
+Verified progress stages emitted by `triage_file()`:
+- 5 — Reading input file
+- 10 — Validating canonical schema
+- 18 — Loading config and VKB references
+- 28 — Adding duplicate / movement identity metadata
+- 36 — Classifying callsigns
+- 52 — Running deterministic passes
+- 65 — Applying analyst scoring and representative movement logic
+- 76 — Building ranked VKB candidate sheets
+- 86 — Building diagnostics and summary sheets
+- 95 — Writing Excel workbook
+- 100 — Complete
+
+Validation evidence:
+- `python -m py_compile triage_engine.py vectis_gui.py` passed.
+- `python validate_sample.py` passed canonical schema validation.
+- Callback validation using `triage_file('input/sample_nm.csv', 'output', '.', progress_callback=callback)` generated `output/sample_nm_triaged.xlsx` successfully and emitted the expected ordered progress stages.
+- Workbook generation with the Phase 5-adjacent statistics/reporting additions succeeded on the sample input.
+- Generated workbook check confirmed the Phase 5-adjacent sheets `07_VKB_IMPACT_PRIORITY`, `21_KNOWN_INTEREST_GAPS`, `22_SIGNAL_DISTRIBUTION`, and `20_SUMMARY` are present.
+
+Environment / manual-test notes:
+- `python vectis_gui.py` could not be interactively validated in this headless container because Tkinter failed with `TclError: no display name and no $DISPLAY environment variable`.
+- The May test input file was not present in this checkout; only `input/sample_nm.csv` was available locally.
+- Because of the headless environment, manual confirmations that require visual interaction with the GUI window remain to be performed on a workstation with a display: launch, visual logo/fallback confirmation, file selection, live responsiveness, live heartbeat/progress observation, completion dialog, duplicate-run click test, and Open output folder click test.
+
+Scope note — early Phase 5 work already landed with the GUI merge:
+- The same merge also introduced early Phase 5 workbook-statistics/reporting features.
+- These additions are already partially implemented and should be reviewed later, not blindly reimplemented.
+- Observed Phase 5-adjacent outputs include:
+  - `07_VKB_IMPACT_PRIORITY`
+  - `21_KNOWN_INTEREST_GAPS`
+  - `22_SIGNAL_DISTRIBUTION`
+  - expanded `20_SUMMARY` blocks
+  - VKB coverage metrics
