@@ -7,7 +7,6 @@ import os
 import platform
 import re
 import subprocess
-import warnings as py_warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -1287,7 +1286,7 @@ def triage_file(
         "07_VKB_IMPACT_PRIORITY": vkb_impact_priority,
         "07_VKB_MATCH_DIAGNOSTICS": vkb_match_diagnostics,
         "08_VKB_LOAD_AUDIT": vkb_load_audit,
-        "ARCID_CLASSIFICATION_DIAGNOSTICS": arcid_classification_diagnostics,
+        "23_ARCID_CLASS_DIAGNOSTICS": arcid_classification_diagnostics,
         "09_EXTRACTED_ALL_AUDIT": extracted,
         "10_REMAINDER_UNEXTRACTED": remainder,
         "11_PASS_LONGFORM_CALLSIGNS": _pass_sheet(work, "LONGFORM_CALLSIGN", "LONGFORM_CALLSIGNS"),
@@ -1308,15 +1307,8 @@ def triage_file(
     output_path = output_dir / f"{input_path.stem}_triaged.xlsx"
     _emit_progress(progress_callback, "Writing Excel workbook", 95)
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        with py_warnings.catch_warnings():
-            py_warnings.filterwarnings(
-                "ignore",
-                message="Title is more than 31 characters.*",
-                category=UserWarning,
-                module="openpyxl.workbook.child",
-            )
-            for sheet_name, sheet_df in sheets.items():
-                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        for sheet_name, sheet_df in sheets.items():
+            sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
         _format_workbook(writer.book)
 
     _emit_progress(progress_callback, "Complete", 100)

@@ -437,7 +437,7 @@ Validation:
 - `python validate_sample.py` passed.
 - `python tests/validate_arcid_context.py` passed focused classifier acceptance examples and a synthetic workbook unknown-operator suppression check.
 - Workbook generation against `input/sample_nm.csv` passed.
-- Generated workbook check confirmed `ARCID_CLASSIFICATION_DIAGNOSTICS` exists.
+- Generated workbook check confirmed `23_ARCID_CLASS_DIAGNOSTICS` exists.
 - Unknown-operator queue check confirmed no MEE/HBJ/FEV/MOO false positives where sample data permits.
 
 Notes:
