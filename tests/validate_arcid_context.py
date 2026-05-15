@@ -82,18 +82,15 @@ def assert_workbook_unknown_operator_suppression() -> None:
         pd.DataFrame(rows, columns=REQUIRED_COLUMNS).to_csv(input_path, index=False)
         result = triage_file(input_path, output_dir, ".")
         workbook = load_workbook(result.output_path, read_only=True)
-        try:
-            assert "23_ARCID_CLASS_DIAGNOSTICS" in workbook.sheetnames
-            unknown_operator_sheet = workbook["05_UNKNOWN_OPERATOR_RANKED"]
-            headers = [cell.value for cell in next(unknown_operator_sheet.iter_rows(max_row=1))]
-            tricode_idx = headers.index("TRICODE")
-            queued = {
-                row[tricode_idx]
-                for row in unknown_operator_sheet.iter_rows(min_row=2, values_only=True)
-                if row[tricode_idx]
-            }
-        finally:
-            workbook.close()
+        assert "23_ARCID_CLASS_DIAGNOSTICS" in workbook.sheetnames
+        unknown_operator_sheet = workbook["05_UNKNOWN_OPERATOR_RANKED"]
+        headers = [cell.value for cell in next(unknown_operator_sheet.iter_rows(max_row=1))]
+        tricode_idx = headers.index("TRICODE")
+        queued = {
+            row[tricode_idx]
+            for row in unknown_operator_sheet.iter_rows(min_row=2, values_only=True)
+            if row[tricode_idx]
+        }
         assert "QQQ" in queued
         assert not ({"HBJ", "FEV", "MOO", "MEE"} & queued)
 
