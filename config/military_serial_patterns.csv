@@ -1,0 +1,10 @@
+COUNTRY,SERVICE,PATTERN_NAME,NORMALISED_REGEX,CONFIDENCE,NOTES
+United Kingdom,Joint,UK_MOD_SERIAL,^[A-Z]{2}[0-9]{3}$,HIGH,RAF/FAA/AAC style serials such as ZZ336
+United States,Air Force,USAF_FISCAL_SERIAL_FULL,"^[0-9]{2}[0-9]{4,5}$",MEDIUM,Fiscal-year serial without hyphen
+United States,Navy/Marine Corps,USN_BUNO,^[0-9]{6}$,MEDIUM,Bureau Number candidate
+France,Air Force/French State,FRENCH_FR_MARK,^FR[A-Z0-9]{3}$,MEDIUM,F-Rxxx mark normalised
+France,Air Force,FRENCH_BASE_TACTICAL_CODE,"^[0-9]{2,3}[A-Z]{2}$",LOW,May be tactical/base code not registration
+Italy,Military,ITALIAN_MM_SERIAL,"^MM[0-9]{3,6}$",HIGH,Italian military serial candidate
+Australia,Military,RAAF_A_SERIAL,"^A[0-9]{2,3}[0-9]{2,4}$",MEDIUM,Hyphen-stripped Axx-xxx style candidate
+New Zealand,Military,RNZAF_NZ_SERIAL,"^NZ[0-9]{3,5}$",HIGH,RNZAF serial candidate
+Germany,Military,GERMAN_TACTICAL_NUMERIC,^[0-9]{4}$,LOW,Hyphen/plus stripped tactical code candidate; context required

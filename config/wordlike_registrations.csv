@@ -1,0 +1,4 @@
+REGISTRATION,NORMALISED,EXPECTED_ATYP,COUNTRY,CONFIDENCE,NOTES
+F-EVER,FEVER,,France,HIGH,Known word-like registration
+M-OOSE,MOOSE,,Isle of Man,HIGH,Known word-like registration
+C-RAZY,CRAZY,,Canada,HIGH,Known word-like registration

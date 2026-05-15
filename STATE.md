@@ -415,3 +415,32 @@ Scope note — early Phase 5 work already landed with the GUI merge:
   - `22_SIGNAL_DISTRIBUTION`
   - expanded `20_SUMMARY` blocks
   - VKB coverage metrics
+
+18. Implementation Update — 2026-05-14 — VECTIS-ARCID-001 Contextual ARCID/RM Classification
+
+Ticket: VECTIS-ARCID-001
+Branch: current feature branch
+
+Implemented:
+- Added contextual ARCID/RM/airframe identifier classification.
+- Added strict tricode rule requiring three letters followed by a digit.
+- Added RM status classification.
+- Added ARCID/RM equality handling.
+- Added Spanish medical ME + EC registration-derived callsign handling.
+- Added config seeds for civil registration patterns, military serial patterns, word-like registrations, and aircraft type context.
+- Added ARCID classification audit fields.
+- Added ARCID classification diagnostics workbook sheet.
+- Suppressed false unknown-operator candidates from pure-letter ARCID values and registration-derived identifiers.
+
+Validation:
+- `python -m py_compile triage_engine.py vectis_gui.py` passed.
+- `python validate_sample.py` passed.
+- `python tests/validate_arcid_context.py` passed focused classifier acceptance examples and a synthetic workbook unknown-operator suppression check.
+- Workbook generation against `input/sample_nm.csv` passed.
+- Generated workbook check confirmed `23_ARCID_CLASS_DIAGNOSTICS` exists.
+- Unknown-operator queue check confirmed no MEE/HBJ/FEV/MOO false positives where sample data permits.
+
+Notes:
+- This ticket does not implement full NSCD contextual candidate scoring.
+- This ticket does not complete Phase 4 scoring refinement.
+- `input/May test Incomplete.csv` was not present in this checkout, so before/after May-file unknown-operator counts could not be reported.
