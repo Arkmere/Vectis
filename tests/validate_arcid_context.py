@@ -85,10 +85,7 @@ def assert_workbook_unknown_operator_suppression() -> None:
         try:
             assert "23_ARCID_CLASS_DIAGNOSTICS" in workbook.sheetnames
             unknown_operator_sheet = workbook["05_UNKNOWN_OPERATOR_RANKED"]
-            headers = [
-                cell.value
-                for cell in next(unknown_operator_sheet.iter_rows(max_row=1))
-            ]
+            headers = [cell.value for cell in next(unknown_operator_sheet.iter_rows(max_row=1))]
             tricode_idx = headers.index("TRICODE")
             queued = {
                 row[tricode_idx]
